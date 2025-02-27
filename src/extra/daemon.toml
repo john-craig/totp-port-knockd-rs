@@ -1,0 +1,8 @@
+[totp_knockd]
+secret_value = ""
+secret_path = ""
+time_interval = 30
+min_port = 1024
+max_port = 32768
+num_ports = 32
+dest_port = 22
