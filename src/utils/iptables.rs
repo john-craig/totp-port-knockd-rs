@@ -5,34 +5,29 @@ const TRAFFIC_FILTER: &str = "totp-knockd-traffic";
 const INPUT_FILTER: &str = "totp-knockd-input";
 const SEQUENCE: &str = "totp-knockd-seq";
 
-pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
+pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Entering setup_port_knocking");
-    let ipt = iptables::new(false).unwrap();
+    let ipt = iptables::new(false)?;
 
     // Set up the main knocking filter chain and chains for each
     // knock in the sequence
     log::debug!("Adding new chain '{TRAFFIC_FILTER}' to table 'filter'");
-    ipt.new_chain("filter", &format!("{TRAFFIC_FILTER}")).unwrap();
+    ipt.new_chain("filter", &format!("{TRAFFIC_FILTER}"))?;
 
     for i in 0..kports.len() {
         log::debug!("Adding new chain '{INPUT_FILTER}{i}' to table 'filter'");
-        ipt.new_chain("filter", &format!("{INPUT_FILTER}{i}")).unwrap();
-    }
+        ipt.new_chain("filter", &format!("{INPUT_FILTER}{i}"))?;
+    };
     
-    /*
-        Set up rules for the main knocking filter:
-            - recieve packets from INPUT
-            - 
-    */
     let mut rule: String;
 
     rule = format!("-j {TRAFFIC_FILTER}");
     log::debug!("Appending rule '{rule}' to chain 'INPUT' in table 'filter'");
-    ipt.append("filter", "INPUT", &rule).unwrap();
+    ipt.append("filter", "INPUT", &rule)?;
 
     rule = "-m state --state ESTABLISHED,RELATED -j ACCEPT".to_string();
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-    ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
+    ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
     /*
         Set up the final jump in the sequence. This allows a new connection to be established
@@ -44,7 +39,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
         -j ACCEPT", 
         kports.len() - 1);
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-    ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
+    ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
     // This rule has the same criteria as above, but it logs the event
     rule = format!("-m state --state NEW -m tcp -p tcp --dport {dport} \
@@ -52,7 +47,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
         -j LOG --log-prefix '[totp-knockd-log] '", 
         kports.len() - 1);
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-    ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
+    ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
     /*
         This rule drops any packets or connections which meet the criteria of the rule above
@@ -64,7 +59,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
         --remove -j DROP", 
         kports.len() - 1);
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-    ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
+    ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
     // Set up rules for each jump in the sequence in reverse order, starting from the second-to-last and con
     for i in (1..kports.len()).rev() {
@@ -83,7 +78,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
                 -j {INPUT_FILTER}{i}", 
                 kports[i], i - 1);
             log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-            ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
+            ipt.append("filter", TRAFFIC_FILTER, &rule)?;
             
             // Same criteria as above, but it logs event
             rule = format!("-m state --state NEW -m tcp -p tcp --dport {} \
@@ -91,7 +86,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
                 -j LOG --log-prefix '[totp-knockd-log] '", 
                 kports[i], i - 1);
             log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-            ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
+            ipt.append("filter", TRAFFIC_FILTER, &rule)?;
             
             /*
                 This rule has the same criteria but drops the packet if it was not sent 
@@ -102,7 +97,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
                 --remove -j DROP", 
                 i - 1);
             log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-            ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
+            ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
             /*
                 The criteria for this rule is as follows:
@@ -115,7 +110,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
             rule = format!("-m recent --name {SEQUENCE}{i} \
                 --set -j DROP");
             log::debug!("Appending rule '{rule}' to chain '{INPUT_FILTER}{i}' in table 'filter'");
-            ipt.append("filter", &format!("{INPUT_FILTER}{i}"), &rule).unwrap();
+            ipt.append("filter", &format!("{INPUT_FILTER}{i}"), &rule)?;
         } else {
             /*
                 For the first port in the sequence there is not preceding list for
@@ -131,65 +126,69 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) {
                 -m recent --name {SEQUENCE}{i} \
                 --set -j DROP", kports[i]);
             log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-            ipt.append("filter", TRAFFIC_FILTER, &rule).unwrap();
-        }
-    }
+            ipt.append("filter", TRAFFIC_FILTER, &rule)?;
+        };
+    };
 
     // Finally, set a rule to drop all packets sent to the traffic filter that do not match other rules
     rule = "-j DROP".to_string();
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-    ipt.append("filter", TRAFFIC_FILTER , &rule).unwrap();
+    ipt.append("filter", TRAFFIC_FILTER , &rule)?;
+
+    Ok(())
 }
 
-pub fn teardown_port_knocking(num_ports: u32) {
+pub fn teardown_port_knocking(num_ports: u32) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Entering teardown_port_knocking");
-    let ipt = iptables::new(false).unwrap();
+    let ipt = iptables::new(false)?;
 
     let rule: String;
 
     // Flush and delete all rules and chains used for totp-knockd
-    if ipt.exists("filter", "INPUT", &format!("-j {TRAFFIC_FILTER}")).unwrap() {
+    if ipt.exists("filter", "INPUT", &format!("-j {TRAFFIC_FILTER}"))? {
         rule = format!("-j {TRAFFIC_FILTER}");
         log::debug!("Deleting rule '{rule}' from chain 'INPUT' from table 'filter'");
-        ipt.delete("filter", "INPUT", &rule).unwrap();
-    }
+        ipt.delete("filter", "INPUT", &rule)?;
+    };
 
-    if ipt.chain_exists("filter", &format!("{TRAFFIC_FILTER}")).unwrap() {
+    if ipt.chain_exists("filter", &format!("{TRAFFIC_FILTER}"))? {
         log::debug!("Flushing chain '{TRAFFIC_FILTER}' in table 'filter'");
-        ipt.flush_chain("filter", &format!("{TRAFFIC_FILTER}")).unwrap();
-    }
+        ipt.flush_chain("filter", &format!("{TRAFFIC_FILTER}"))?;
+    };
 
     for i in 0..num_ports {
-        if ipt.chain_exists("filter", &format!("{INPUT_FILTER}{i}")).unwrap() {
+        if ipt.chain_exists("filter", &format!("{INPUT_FILTER}{i}"))? {
             log::debug!("Flushing chain '{INPUT_FILTER}{i}' in table 'filter'");
-            ipt.flush_chain("filter", &format!("{INPUT_FILTER}{i}")).unwrap();
+            ipt.flush_chain("filter", &format!("{INPUT_FILTER}{i}"))?;
 
             log::debug!("Deleting chain '{INPUT_FILTER}{i}' from table 'filter'");
-            ipt.delete_chain("filter", &format!("{INPUT_FILTER}{i}")).unwrap();
-        }
-    }
+            ipt.delete_chain("filter", &format!("{INPUT_FILTER}{i}"))?;
+        };
+    };
 
-    if ipt.chain_exists("filter", &format!("{TRAFFIC_FILTER}")).unwrap() {
+    if ipt.chain_exists("filter", &format!("{TRAFFIC_FILTER}"))? {
         log::debug!("Deleting chain '{TRAFFIC_FILTER}' from table 'filter'");
-        ipt.delete_chain("filter", &format!("{TRAFFIC_FILTER}")).unwrap();
-    }
+        ipt.delete_chain("filter", &format!("{TRAFFIC_FILTER}"))?;
+    };
+
+    Ok(())
 }
 
-pub fn get_knock_completions() -> i32 {
+pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
     log::info!("Entering get_knock_completions");
-    let ipt = iptables::new(false).unwrap();
+    let ipt = iptables::new(false)?;
 
-    let ipt_output = ipt.execute("filter", &format!("-nvL {TRAFFIC_FILTER}")).unwrap();
+    let ipt_output = ipt.execute("filter", &format!("-nvL {TRAFFIC_FILTER}"))?;
     
     if ! ipt_output.status.success() {
         log::error!("Unable to get knocking completions");
-        std::process::exit(1);
-    }
+        return Ok(0);
+    };
     
-    let ipt_stdout = str::from_utf8(&ipt_output.stdout).unwrap();
+    let ipt_stdout = str::from_utf8(&ipt_output.stdout)?;
     
-    let num_completions: i32 = ipt_stdout.parse().unwrap();
+    let num_completions: i32 = ipt_stdout.parse()?;
     log::debug!("num_completions: {num_completions}");
 
-    num_completions
+    Ok(num_completions)
 }

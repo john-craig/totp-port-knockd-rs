@@ -1,8 +1,6 @@
 use psocket::{TcpSocket, IpAddr, Ipv4Addr, SocketAddr};
-use std::str::FromStr;
-use std::time::Duration;
 
-pub fn knock_ports(ip_address: Ipv4Addr, dest_port: u32, kports: Vec<u32>) -> bool {
+pub fn knock_ports(ip_address: Ipv4Addr, dest_port: u32, kports: Vec<u32>) -> Result<bool, Box<dyn std::error::Error>> {
     log::info!("Entering knock_ports");
     let mut success = false;
 
@@ -10,14 +8,14 @@ pub fn knock_ports(ip_address: Ipv4Addr, dest_port: u32, kports: Vec<u32>) -> bo
         let p_num = kports[i];
 
         log::debug!("knocking port: {p_num}");
-        let _ = TcpSocket::connect(&SocketAddr::new(IpAddr::V4(ip_address), p_num.try_into().unwrap()));
-    }
+        let _ = TcpSocket::connect(&SocketAddr::new(IpAddr::V4(ip_address), p_num.try_into()?));
+    };
 
     log::debug!("knocking port dest_port: {dest_port}");
-    if let Ok(_) = TcpSocket::connect(&SocketAddr::new(IpAddr::V4(ip_address), dest_port.try_into().unwrap())) {
+    if let Ok(_) = TcpSocket::connect(&SocketAddr::new(IpAddr::V4(ip_address), dest_port.try_into()?)) {
         success = true;
-    }
+    };
 
     log::debug!("success: {success}");
-    success
+    Ok(success)
 }

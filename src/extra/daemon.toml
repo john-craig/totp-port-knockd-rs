@@ -1,4 +1,4 @@
-[totp_knockd]
+[totp_knock]
 secret_value = ""
 secret_path = ""
 time_interval = 30
