@@ -11,6 +11,8 @@ use fork::{fork, Fork};
 use nix::unistd::Pid;
 use nix::sys::signal::{self, Signal};
 use signal_hook::{consts::SIGINT, consts::SIGTERM, iterator::Signals};
+use syslog::{Facility, Formatter3164, BasicLogger};
+use log::{LevelFilter};
 
 #[path = "../utils/kports.rs"] mod kports;
 #[path = "../utils/iptables.rs"] mod iptables;
@@ -60,22 +62,34 @@ fn main() {
 
 fn start_daemon(knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Entering start_daemon");
-    match fork() {
-        Ok(Fork::Parent(pid)) => {
-            knock_daemon.save_pid(pid)?
-        }
-        Ok(Fork::Child) => {
-            match run_daemon(knock_daemon) {
-                Ok(_) => {},
-                Err(err) => {
-                    log::error!("Error running daemon: {:?}", err);
-                }
-            };
-        },
-        Err(_) => {
-            log::error!("Forking daemon failed");
-        }
-    };
+    run_daemon(knock_daemon)?;
+    // match fork() {
+    //     Ok(Fork::Parent(pid)) => {
+    //         knock_daemon.save_pid(pid)?
+    //     },
+    //     Ok(Fork::Child) => {
+    //         let formatter = Formatter3164 {
+    //             facility: Facility::LOG_USER,
+    //             hostname: None,
+    //             process: "totp-knockd".into(),
+    //             pid: 0,
+    //         };
+            
+    //         let logger = syslog::unix(formatter)?;
+    //         log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
+    //                 .map(|()| log::set_max_level(LevelFilter::Trace))?;
+
+    //         match run_daemon(knock_daemon) {
+    //             Ok(_) => {},
+    //             Err(err) => {
+    //                 log::error!("Error running daemon: {:?}", err);
+    //             }
+    //         };
+    //     },
+    //     Err(_) => {
+    //         log::error!("Forking daemon failed");
+    //     }
+    // };
 
     Ok(())
 }
