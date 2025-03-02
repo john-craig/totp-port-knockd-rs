@@ -23,7 +23,7 @@ fn main() {
     match which("iptables") {
         Ok(_) => {},
         Err(err) => {
-            log::error!("Error locating iptables: {}", err);
+            log::error!("Error locating iptables: {:?}", err);
             std::process::exit(1);
         }
     };
@@ -31,7 +31,7 @@ fn main() {
     let knock_daemon = match KnockDaemon::build_daemon() {
         Ok(kd) => kd,
         Err(err) => {
-            log::error!("Error preparing configuration: {}", err);
+            log::error!("Error preparing configuration: {:?}", err);
             std::process::exit(1);
         }
     };
@@ -40,7 +40,7 @@ fn main() {
     match knock_daemon.ensure_state_dir() {
         Ok(_) => {},
         Err(err) => {
-            log::error!("Error ensuring state directory: {}", err);
+            log::error!("Error ensuring state directory: {:?}", err);
             std::process::exit(1);
         }
     };
@@ -53,7 +53,7 @@ fn main() {
     match result {
         Ok(_) => {},
         Err(err) => {
-            log::error!("Error performing action: {}", err);
+            log::error!("Error performing action: {:?}", err);
         }
     };
 }
@@ -68,7 +68,7 @@ fn start_daemon(knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::Err
             match run_daemon(knock_daemon) {
                 Ok(_) => {},
                 Err(err) => {
-                    log::error!("Error running daemon: {}", err);
+                    log::error!("Error running daemon: {:?}", err);
                 }
             };
         },

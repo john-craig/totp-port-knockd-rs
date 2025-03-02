@@ -7,7 +7,16 @@ const SEQUENCE: &str = "totp-knockd-seq";
 
 pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Entering setup_port_knocking");
-    let ipt = iptables::new(false)?;
+    // let ipt = iptables::new(false)?;
+    let ipt = match(iptables::new(false)) {
+        Ok(val) => val,
+        Err(err) => {
+            log::warn!("Encoutnered error creating iptables");
+            log::error!("Error: {:?}", err);
+
+            std::process::exit(1);
+        }
+    };
 
     // Set up the main knocking filter chain and chains for each
     // knock in the sequence
