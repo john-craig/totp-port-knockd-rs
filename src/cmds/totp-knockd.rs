@@ -65,7 +65,12 @@ fn start_daemon(knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::Err
             knock_daemon.save_pid(pid)?
         }
         Ok(Fork::Child) => {
-            run_daemon(knock_daemon)?
+            match run_daemon(knock_daemon) {
+                Ok(_) => {},
+                Err(err) => {
+                    log::error!("Error running daemon: {}", err);
+                }
+            };
         },
         Err(_) => {
             log::error!("Forking daemon failed");
