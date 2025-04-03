@@ -1,5 +1,6 @@
 use std::str;
 use iptables;
+use regex::Regex;
 
 const TRAFFIC_FILTER: &str = "totp-knockd-traffic";
 const INPUT_FILTER: &str = "totp-knockd-input";
@@ -175,11 +176,11 @@ pub fn teardown_port_knocking(num_ports: u32) -> Result<(), Box<dyn std::error::
 }
 
 pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
-    log::info!("Entering get_knock_completions!");
+    log::info!("Entering get_knock_completions");
     let ipt = iptables::new(false)?;
     log::debug!("test!");
+    
     let ipt_output = ipt.execute("filter", &format!("-nvL {TRAFFIC_FILTER}"))?;
-    log::debug!("test!");
     
     if ! ipt_output.status.success() {
         log::error!("Unable to get knocking completions");
@@ -187,8 +188,25 @@ pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
     };
     
     let ipt_stdout = str::from_utf8(&ipt_output.stdout)?;
+    log::trace!("ipt_stdout: {ipt_stdout}");
     
-    let num_completions: i32 = ipt_stdout.parse()?;
+    // Define a regex pattern to match the line with ACCEPT target and extract the packet count
+    let re = Regex::new(r"^\s*(\d+)\s+\d+\s+ACCEPT\s+.*$").unwrap();
+
+    // Initialize a variable to store the number of packets matched by ACCEPT rule
+    let mut num_completions = 0;
+
+    // Iterate over each line of the output
+    for line in ipt_stdout.lines() {
+        if let Some(captures) = re.captures(line) {
+            // The first capture group is the packet count
+            if let Some(matched) = captures.get(1) {
+                num_completions = matched.as_str().parse::<i32>().unwrap();
+                break; // Exit the loop after finding the first ACCEPT rule
+            }
+        }
+    }
+
     log::debug!("num_completions: {num_completions}");
 
     Ok(num_completions)

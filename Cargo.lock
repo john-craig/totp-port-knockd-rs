@@ -771,6 +771,7 @@ dependencies = [
  "log",
  "nix",
  "psocket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
