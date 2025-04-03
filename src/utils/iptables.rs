@@ -186,6 +186,7 @@ pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
     };
     
     let ipt_stdout = str::from_utf8(&ipt_output.stdout)?;
+    log::debug!("ipt_stdout: {ipt_stdout}");
     
     let num_completions: i32 = ipt_stdout.parse()?;
     log::debug!("num_completions: {num_completions}");
