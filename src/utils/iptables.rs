@@ -175,10 +175,11 @@ pub fn teardown_port_knocking(num_ports: u32) -> Result<(), Box<dyn std::error::
 }
 
 pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
-    log::info!("Entering get_knock_completions");
+    log::info!("Entering get_knock_completions!");
     let ipt = iptables::new(false)?;
-
+    log::debug!("test!");
     let ipt_output = ipt.execute("filter", &format!("-nvL {TRAFFIC_FILTER}"))?;
+    log::debug!("test!");
     
     if ! ipt_output.status.success() {
         log::error!("Unable to get knocking completions");
@@ -186,7 +187,6 @@ pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
     };
     
     let ipt_stdout = str::from_utf8(&ipt_output.stdout)?;
-    log::debug!("ipt_stdout: {ipt_stdout}");
     
     let num_completions: i32 = ipt_stdout.parse()?;
     log::debug!("num_completions: {num_completions}");
