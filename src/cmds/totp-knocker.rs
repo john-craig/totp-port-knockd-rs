@@ -163,7 +163,7 @@ impl Knocker {
                     Err(_) => {
                         // Finally construct from user home directory
                         match env::var("HOME") {
-                            Ok(hm) => hm + "/.local/state/totp-knocker/knocker.toml",
+                            Ok(hm) => hm + "/.local/state/totp-knocker",
                             Err(_) => {
                                 log::error!("User has no HOME variable set");
                                 std::process::exit(1);

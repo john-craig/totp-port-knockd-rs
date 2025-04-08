@@ -10,8 +10,26 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
     log::info!("Entering setup_port_knocking");
     let ipt = iptables::new(false)?;
 
-    // Set up the main knocking filter chain and chains for each
-    // knock in the sequence
+    /*
+        Set the appropriate policies for standard chains and create
+        the main knocking filter chain and chains for each knock in the sequence
+        
+            :INPUT DROP [0:0]
+            :FORWARD DROP [0:0]
+            :OUTPUT ACCEPT [0:0]
+            :totp-knockd-traffic - [0:0]
+            :totp-knockd-input0 - [0:0]
+            :totp-knockd-input1 - [0:0]
+    */
+    log::debug!("Setting policy for INPUT chain in table 'filter'");
+    ipt.set_policy("filter", "INPUT", "DROP")?;
+
+    log::debug!("Setting policy for FORWARD chain in table 'filter'");
+    ipt.set_policy("filter", "FORWARD", "DROP")?;
+
+    log::debug!("Setting policy for OUTPUT chain in table 'filter'");
+    ipt.set_policy("filter", "OUTPUT", "ACCEPT")?;
+
     log::debug!("Adding new chain '{TRAFFIC_FILTER}' to table 'filter'");
     ipt.new_chain("filter", &format!("{TRAFFIC_FILTER}"))?;
 
@@ -20,11 +38,21 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
         ipt.new_chain("filter", &format!("{INPUT_FILTER}{i}"))?;
     };
     
+    /*
+        Set up initial rules for final jump
+            -A INPUT -j totp-knockd-traffic
+            -A totp-knockd-traffic -p icmp --icmp-type any -j ACCEPT
+            -A totp-knockd-traffic -m state --state ESTABLISHED,RELATED -j ACCEPT
+    */
     let mut rule: String;
 
     rule = format!("-j {TRAFFIC_FILTER}");
     log::debug!("Appending rule '{rule}' to chain 'INPUT' in table 'filter'");
     ipt.append("filter", "INPUT", &rule)?;
+
+    rule = "-p icmp --icmp-type any -j ACCEPT".to_string();
+    log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
+    ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
     rule = "-m state --state ESTABLISHED,RELATED -j ACCEPT".to_string();
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
@@ -33,7 +61,10 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
     /*
         Set up the final jump in the sequence. This allows a new connection to be established
         with the TCP protocol on the port `dport` when source IP of the connection has been
-        added to the list `totp-knockd-seqX` in the past 30 seconds 
+        added to the list `totp-knockd-seqX` in the past 30 seconds.
+
+            -A totp-knockd-traffic -m state --state NEW -m tcp -p tcp --dport 22 -m recent --rcheck --seconds 30 --name totp-knockd-seqX -j ACCEPT
+            -A totp-knockd-traffic -m state --state NEW -m tcp -p tcp -m recent --name totp-knockd-seqX --remove -j DROP
     */
     rule = format!("-m state --state NEW -m tcp -p tcp --dport {dport} \
         -m recent --rcheck --seconds 30 --name {SEQUENCE}{} \
@@ -43,27 +74,36 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
     ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
     // This rule has the same criteria as above, but it logs the event
-    rule = format!("-m state --state NEW -m tcp -p tcp --dport {dport} \
-        -m recent --rcheck --seconds 30 --name {SEQUENCE}{} \
-        -j LOG --log-prefix '[totp-knockd-log] '", 
-        kports.len() - 1);
-    log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-    ipt.append("filter", TRAFFIC_FILTER, &rule)?;
+    // rule = format!("-m state --state NEW -m tcp -p tcp --dport {dport} \
+    //     -m recent --rcheck --seconds 30 --name {SEQUENCE}{} \
+    //     -j LOG --log-prefix '[totp-knockd-log] '", 
+    //     kports.len() - 1);
+    // log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
+    // ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
     /*
         This rule drops any packets or connections which meet the criteria of the rule above
         but do not actually connect to the `dport` with TCP (e.g., they try to connect
         to a different port or use UDP for some reason)
     */
-    rule = format!("-m state --state NEW -m tcp -p tcp --dport {dport} \
+    rule = format!("-m state --state NEW -m tcp -p tcp \
         -m recent --name {SEQUENCE}{} \
         --remove -j DROP", 
         kports.len() - 1);
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
     ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
-    // Set up rules for each jump in the sequence in reverse order, starting from the second-to-last and con
-    for i in (1..kports.len()).rev() {
+    /* 
+        Set up rules for each jump in the sequence in reverse order, starting from the second-to-last and continuing.
+        Each set of rule(s) takes the following format:
+
+            -A totp-knockd-traffic -m state --state NEW -m tcp -p tcp --dport 9991 -m recent --rcheck --name totp-knockd-seq1 -j totp-knockd-input2
+            -A totp-knockd-traffic -m state --state NEW -m tcp -p tcp -m recent --name totp-knockd-seq1 --remove -j DROP
+        
+        With the exception of the rule for the first jump (which is applied last), and should have this format:
+            -A totp-knockd-traffic -m state --state NEW -m tcp -p tcp -m recent --name totp-knockd-seq0 --remove -j DROP
+    */
+    for i in (0..kports.len()).rev() {
         if i != 0 {
             /*
                 The criteria for this rule is as follows:
@@ -82,12 +122,12 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
             ipt.append("filter", TRAFFIC_FILTER, &rule)?;
             
             // Same criteria as above, but it logs event
-            rule = format!("-m state --state NEW -m tcp -p tcp --dport {} \
-                -m recent --rcheck --name {SEQUENCE}{} \
-                -j LOG --log-prefix '[totp-knockd-log] '", 
-                kports[i], i - 1);
-            log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
-            ipt.append("filter", TRAFFIC_FILTER, &rule)?;
+            // rule = format!("-m state --state NEW -m tcp -p tcp --dport {} \
+            //     -m recent --rcheck --name {SEQUENCE}{} \
+            //     -j LOG --log-prefix '[totp-knockd-log] '", 
+            //     kports[i], i - 1);
+            // log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
+            // ipt.append("filter", TRAFFIC_FILTER, &rule)?;
             
             /*
                 This rule has the same criteria but drops the packet if it was not sent 
@@ -130,6 +170,16 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
             ipt.append("filter", TRAFFIC_FILTER, &rule)?;
         };
     };
+
+    /* Set up drop rules between each input and its sequence chain. This should have the format:
+
+        -A totp-knockd-input0 -m recent --name totp-knockd-seq0 --set -j DROP
+    */
+    for i in 0..kports.len()-1 {
+        rule = format!(" -m recent --name  {SEQUENCE}{i} --set -j DROP");
+        log::debug!("Appending rule '{rule}' to chain '{INPUT_FILTER}{i}' in table 'filter'");
+        ipt.append("filter", &format!("{INPUT_FILTER}{i}"), &rule)?;
+    }
 
     // Finally, set a rule to drop all packets sent to the traffic filter that do not match other rules
     rule = "-j DROP".to_string();
@@ -175,10 +225,9 @@ pub fn teardown_port_knocking(num_ports: u32) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
+pub fn get_accepted_packets(dport: u32) -> Result<i32, Box<dyn std::error::Error>> {
     log::info!("Entering get_knock_completions");
     let ipt = iptables::new(false)?;
-    log::debug!("test!");
     
     let ipt_output = ipt.execute("filter", &format!("-nvL {TRAFFIC_FILTER}"))?;
     
@@ -191,23 +240,31 @@ pub fn get_knock_completions() -> Result<i32, Box<dyn std::error::Error>> {
     log::trace!("ipt_stdout: {ipt_stdout}");
     
     // Define a regex pattern to match the line with ACCEPT target and extract the packet count
-    let re = Regex::new(r"^\s*(\d+)\s+\d+\s+ACCEPT\s+.*$").unwrap();
+    let rule_string = format!("state NEW tcp dpt:{dport} recent: CHECK seconds: 30");
+    let regx_string = format!(r"^\s*(\d+)\s+\d+\s+ACCEPT\s+.*{rule_string}.*$");
+    let re = Regex::new(&regx_string).expect("Invalid regex");
 
     // Initialize a variable to store the number of packets matched by ACCEPT rule
-    let mut num_completions = 0;
+    let mut accepted_packets = 0;
 
     // Iterate over each line of the output
     for line in ipt_stdout.lines() {
         if let Some(captures) = re.captures(line) {
             // The first capture group is the packet count
             if let Some(matched) = captures.get(1) {
-                num_completions = matched.as_str().parse::<i32>().unwrap();
+                accepted_packets = matched.as_str().parse::<i32>().expect("Failed to parse accepted packets");
                 break; // Exit the loop after finding the first ACCEPT rule
             }
         }
     }
 
-    log::debug!("num_completions: {num_completions}");
+    log::debug!("accepted_packets: {accepted_packets}");
 
-    Ok(num_completions)
+    Ok(accepted_packets)
+}
+
+pub fn get_knock_completions(dport: u32) -> Result<i32, Box<dyn std::error::Error>> {
+    let accepted_packets = get_accepted_packets(dport)?;
+
+    Ok(0)
 }

@@ -19,7 +19,10 @@ use log::{LevelFilter};
 #[path = "../utils/options.rs"] mod options;
 
 fn main() {    
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::new()
+        .with_level(LevelFilter::Trace)
+        .init()
+        .unwrap();
     
     // Ensure `iptables` is available in the current PATH
     match which("iptables") {
@@ -63,33 +66,6 @@ fn main() {
 fn start_daemon(knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Entering start_daemon");
     run_daemon(knock_daemon)?;
-    // match fork() {
-    //     Ok(Fork::Parent(pid)) => {
-    //         knock_daemon.save_pid(pid)?
-    //     },
-    //     Ok(Fork::Child) => {
-    //         let formatter = Formatter3164 {
-    //             facility: Facility::LOG_USER,
-    //             hostname: None,
-    //             process: "totp-knockd".into(),
-    //             pid: 0,
-    //         };
-            
-    //         let logger = syslog::unix(formatter)?;
-    //         log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
-    //                 .map(|()| log::set_max_level(LevelFilter::Trace))?;
-
-    //         match run_daemon(knock_daemon) {
-    //             Ok(_) => {},
-    //             Err(err) => {
-    //                 log::error!("Error running daemon: {:?}", err);
-    //             }
-    //         };
-    //     },
-    //     Err(_) => {
-    //         log::error!("Forking daemon failed");
-    //     }
-    // };
 
     Ok(())
 }
@@ -156,7 +132,7 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
         for _ in 0..interval_remaining {
             thread::sleep(Duration::from_secs(1));
 
-            if iptables::get_knock_completions()? > 0 {
+            if iptables::get_knock_completions(knock_daemon.knock_common.dest_port)? > 0 {
                 log::debug!("incrementing knock counter");
 
                 knock_daemon.knock_common.counter += 1;
