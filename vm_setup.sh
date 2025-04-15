@@ -23,11 +23,3 @@ else
     sudo ip link set dev tap0 up
     sudo ip link set tap0 master br0
 fi
-
-pushd $VIRTUAL_MACHINE_CONFIGURATIONS
-    # Build the test-vm for the current run
-    build-machine test-vm
-
-    # Run the test VM
-    result/bin/run-nixos-vm
-popd

@@ -5,18 +5,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha256::digest;
 
+const VERSION_STRING: &str = "1";
 const DEFAULT_TIME_INTERVAL: u64 = 30;
 const DEFAULT_MIN_PORT: u32 = 1024;
 const DEFAULT_MAX_PORT: u32 = 32768;
 const DEFAULT_NUM_PORTS: u32 = 32;
-
 
 /************************************************************************************/
 /* Common                                                                           */
 /************************************************************************************/
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-struct KnockState {
+pub struct KnockState {
+    pub version: String,
     pub timestamp: u64,
     pub counter: u32,
     pub config_digest: String,
@@ -341,6 +342,7 @@ impl KnockCommon {
             changed = true;
 
             KnockState{
+                version: VERSION_STRING.to_string(),
                 config_digest: config_digest.clone(),
                 timestamp: cur_time_secs - (cur_time_secs % self.interval),
                 counter: 0,
@@ -359,6 +361,16 @@ impl KnockCommon {
             knock_state.counter = 0;
             knock_state.timestamp = cur_time_secs - (cur_time_secs % self.interval); 
         };
+        
+        // Check if counter was incremented
+        if self.counter != knock_state.counter {
+            changed = true;
+
+            if self.counter > knock_state.counter {
+                log::debug!("counter incremented");
+                knock_state.counter = self.counter;
+            };
+        };
 
         // Check if timestamp expired
         if cur_time_secs > knock_state.timestamp + self.interval {
@@ -368,13 +380,6 @@ impl KnockCommon {
             knock_state.config_digest = config_digest;
             knock_state.counter = 0;
             knock_state.timestamp = cur_time_secs - (cur_time_secs % self.interval);
-        };
-
-        if self.counter > knock_state.counter {
-            log::debug!("counter incremented");
-            changed = true;
-
-            knock_state.counter = self.counter;
         };
 
         log::trace!("knock_state (after): {knock_state:?}");
@@ -388,13 +393,13 @@ impl KnockCommon {
 
         log::debug!("knock_state: {knock_state:?}");
         log::debug!("changed: {changed}");
-        log::debug!("self.count: {}", self.counter);
+        log::debug!("self.counter: {}", self.counter);
         log::debug!("self.timestamp: {}", self.timestamp);
 
         Ok(changed)
     }
 
-    fn read_state(&self) -> Result<KnockState, Box<dyn std::error::Error>> {
+    pub fn read_state(&self) -> Result<KnockState, Box<dyn std::error::Error>> {
         log::info!("Entering read_state");
         let state_file_path: PathBuf = Path::new(&self.state_dir).join(STATE_FILE_NAME);
 

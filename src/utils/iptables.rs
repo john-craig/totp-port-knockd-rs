@@ -225,7 +225,7 @@ pub fn teardown_port_knocking(num_ports: u32) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-pub fn get_accepted_packets(dport: u32) -> Result<i32, Box<dyn std::error::Error>> {
+pub fn get_accepted_packets(dport: u32) -> Result<u32, Box<dyn std::error::Error>> {
     log::info!("Entering get_knock_completions");
     let ipt = iptables::new(false)?;
     
@@ -252,7 +252,7 @@ pub fn get_accepted_packets(dport: u32) -> Result<i32, Box<dyn std::error::Error
         if let Some(captures) = re.captures(line) {
             // The first capture group is the packet count
             if let Some(matched) = captures.get(1) {
-                accepted_packets = matched.as_str().parse::<i32>().expect("Failed to parse accepted packets");
+                accepted_packets = matched.as_str().parse::<u32>().expect("Failed to parse accepted packets");
                 break; // Exit the loop after finding the first ACCEPT rule
             }
         }
@@ -261,10 +261,4 @@ pub fn get_accepted_packets(dport: u32) -> Result<i32, Box<dyn std::error::Error
     log::debug!("accepted_packets: {accepted_packets}");
 
     Ok(accepted_packets)
-}
-
-pub fn get_knock_completions(dport: u32) -> Result<i32, Box<dyn std::error::Error>> {
-    let accepted_packets = get_accepted_packets(dport)?;
-
-    Ok(0)
 }

@@ -1,17 +1,14 @@
 use simple_logger::SimpleLogger;
-use clap::{Parser, ValueEnum};
+use clap::{Parser};
 use std::path::{Path, PathBuf};
 use which::which;
 use std::thread;
 use std::env;
 use std::str;
 use std::fs;
+use std::sync::mpsc;
 use std::time::Duration;
-use fork::{fork, Fork};
-use nix::unistd::Pid;
-use nix::sys::signal::{self, Signal};
 use signal_hook::{consts::SIGINT, consts::SIGTERM, iterator::Signals};
-use syslog::{Facility, Formatter3164, BasicLogger};
 use log::{LevelFilter};
 
 #[path = "../utils/kports.rs"] mod kports;
@@ -20,7 +17,7 @@ use log::{LevelFilter};
 
 fn main() {    
     SimpleLogger::new()
-        .with_level(LevelFilter::Trace)
+        .with_level(LevelFilter::Debug)
         .init()
         .unwrap();
     
@@ -50,32 +47,12 @@ fn main() {
         }
     };
     
-    let result = match knock_daemon.action {
-        DaemonActionKind::Start => start_daemon(knock_daemon),
-        DaemonActionKind::Stop => stop_daemon(knock_daemon),
-    };
-
-    match result {
+    match run_daemon(knock_daemon) {
         Ok(_) => {},
         Err(err) => {
-            log::error!("Error performing action: {:?}", err);
+            log::error!("Error running daemon: {:?}", err);
         }
     };
-}
-
-fn start_daemon(knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Entering start_daemon");
-    run_daemon(knock_daemon)?;
-
-    Ok(())
-}
-
-fn stop_daemon(knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!("Entering stop_daemon");
-    let daemon_pid: i32 = knock_daemon.read_pid()?;
-
-    log::debug!("daemon_pid: {daemon_pid}");
-    signal::kill(Pid::from_raw(daemon_pid), Signal::SIGTERM)?;
 
     // Exit the process
     std::process::exit(0);
@@ -86,25 +63,41 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
     let mut signals = Signals::new([SIGINT, SIGTERM])?;
 
     log::debug!("spawning signal processing thread");
+    let (send_shutdown, recv_shutdown) = mpsc::channel();
+    let (send_acknowledge, recv_acknowledge) = mpsc::channel();
     let kd_signal_clone = knock_daemon.clone();
     thread::spawn(move || {
         for _ in signals.forever() {
             log::info!("Recieved termination or interrupt signal");
+            match send_shutdown.send(true) {
+                Ok(_) => {
+                    log::info!("Sent shutdown signal to main thread");
+                },
+                Err(err) => {
+                    log::error!("Failed to send shutdown signal to main thread: {:?}", err);
+                    std::process::exit(1);
+                }
+            };
+
+            let _ = recv_acknowledge.recv();
 
             // Teardown all the rules
-            let _ = iptables::teardown_port_knocking(kd_signal_clone.knock_common.num_ports);
+            match iptables::teardown_port_knocking(kd_signal_clone.knock_common.num_ports) {
+                Ok(_) => log::info!("Final port knocking teardown successful"),
+                Err(err) => log::error!("Error performing final port knocking teardown: {:?}", err)
+            };
 
             // Delete the PID file
             let _ = kd_signal_clone.clean_pid();
 
-            // Exit the process
-            std::process::exit(0);
+            send_shutdown.send(true).expect("Failed to notify main thread of shutdown completion");
         }
     });
 
     loop {
         // Update the state of the knock daemon
         let expired: bool = knock_daemon.update_state()?;
+        let mut shutdown: bool = false;
 
         if expired {
             log::debug!("rebuilding knock rules");
@@ -130,16 +123,40 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
         log::debug!("interval_remaining: {interval_remaining}");
 
         for _ in 0..interval_remaining {
+            shutdown = match recv_shutdown.try_recv() {
+                Ok(msg) => msg,
+                Err(_) => false
+            };
+            if shutdown {
+                break;
+            };
+
             thread::sleep(Duration::from_secs(1));
+            let accepted_packets: u32 = iptables::get_accepted_packets(knock_daemon.knock_common.dest_port)?;
 
-            if iptables::get_knock_completions(knock_daemon.knock_common.dest_port)? > 0 {
+            if accepted_packets > 0 {
                 log::debug!("incrementing knock counter");
-
                 knock_daemon.knock_common.counter += 1;
                 break;
             };
         };
+
+        if !shutdown {
+            shutdown = match recv_shutdown.try_recv() {
+                Ok(msg) => msg,
+                Err(_) => false
+            };
+        };
+
+        if shutdown {
+            log::info!("Recieved shutdown signal from signal handling thread");
+            send_acknowledge.send(()).expect("Failed to send acknowledgement to signal handling thread");
+            break;
+        };
     };
+
+    recv_shutdown.recv().expect("Failed to recieve shutdown confirmation from signal handling thread");
+    Ok(())
 }
 
 /************************************************************************************/
@@ -153,15 +170,6 @@ const DAEMON_DEFAULT_CONFIG_PATH: &str = "/etc/totp-knockd/daemon.toml";
 const DAEMON_DEFAULT_STATE_DIR: &str = "/var/lib/totp-knockd";
 
 const PID_FILE_NAME: &str = "daemon.pid";
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-pub enum DaemonActionKind {
-    /// Start the TOTP Port Knocking Daemon
-    Start,
-
-    /// Stop the TOTP Port Knocking Daemon
-    Stop,
-}
 
 /// Time-based One-time Passcode Port Knocking Daemon
 #[derive(Parser)]
@@ -192,15 +200,12 @@ struct DaemonArgs {
     /// Port to open when the knocking sequence is complete.
     #[arg(long)]
     dest_port: Option<u32>,
-
-    action: DaemonActionKind,
 }
 
 
 #[derive(Clone, Debug)]
 pub struct KnockDaemon {
     pub knock_common: options::KnockCommon,
-    pub action: DaemonActionKind,
 }
 
 impl KnockDaemon {
@@ -241,8 +246,7 @@ impl KnockDaemon {
             config.clone())?;
 
         Ok(KnockDaemon{
-            knock_common: knock_common.clone(),
-            action: args.action
+            knock_common: knock_common.clone()
         })
     }
 
