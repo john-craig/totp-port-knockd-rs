@@ -66,7 +66,7 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
     let (send_shutdown, recv_shutdown) = mpsc::channel();
     let (send_acknowledge, recv_acknowledge) = mpsc::channel();
     let kd_signal_clone = knock_daemon.clone();
-    thread::spawn(move || {
+    let signal_thread = thread::spawn(move || {
         for _ in signals.forever() {
             log::info!("Recieved termination or interrupt signal");
             match send_shutdown.send(true) {
@@ -89,8 +89,6 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
 
             // Delete the PID file
             let _ = kd_signal_clone.clean_pid();
-
-            send_shutdown.send(true).expect("Failed to notify main thread of shutdown completion");
         }
     });
 
@@ -155,7 +153,7 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
         };
     };
 
-    recv_shutdown.recv().expect("Failed to recieve shutdown confirmation from signal handling thread");
+    signal_thread.join().expect("Failed to rejoin signal handling thread");
     Ok(())
 }
 

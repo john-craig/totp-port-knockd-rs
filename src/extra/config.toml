@@ -1,0 +1,8 @@
+[totp_knock]
+secret_value = ""   # Plaintext value of the shared TOTP secret
+# secret_path = ""  # Mutually exclusive with 'secret_value'
+time_interval = 30  # Duration of the TOTP interval, in seconds
+min_port = 1024     # Lower bound of the range of ports to select for the knocking sequence
+max_port = 32768    # Upper bound of the range of ports to select for the knocking sequqnece
+num_ports = 32      # Number of knocks in the sequence
+dest_port = 22      # Protected port to open/connect to at the end of the sequence

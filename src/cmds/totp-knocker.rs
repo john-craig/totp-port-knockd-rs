@@ -21,7 +21,6 @@ fn main() {
     };
 
     // Create the state directory if it does not already exist
-    // Create the state directory if it does not already exist
     match knocker.ensure_state_dir() {
         Ok(_) => {},
         Err(err) => {
