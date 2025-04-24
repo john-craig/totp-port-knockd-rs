@@ -10,7 +10,11 @@ use std::env;
 #[path = "../utils/options.rs"] mod options;
 
 fn main() {    
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .env()
+        .init()
+        .unwrap();
 
     let mut knocker = match Knocker::build_knocker() {
         Ok(kr) => kr,

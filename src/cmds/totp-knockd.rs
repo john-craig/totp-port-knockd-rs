@@ -17,7 +17,8 @@ use log::{LevelFilter};
 
 fn main() {    
     SimpleLogger::new()
-        .with_level(LevelFilter::Debug)
+        .with_level(LevelFilter::Info)
+        .env()
         .init()
         .unwrap();
     
