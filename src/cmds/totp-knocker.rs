@@ -1,16 +1,19 @@
+use clap::Parser;
+use log::LevelFilter;
+use psocket::Ipv4Addr;
 use simple_logger::SimpleLogger;
-use log::{LevelFilter};
-use clap::{Parser};
-use std::path::{Path};
-use psocket::{Ipv4Addr};
-use std::str;
 use std::env;
+use std::path::Path;
+use std::str;
 
-#[path = "../utils/kports.rs"] mod kports;
-#[path = "../utils/socket.rs"] mod socket;
-#[path = "../utils/options.rs"] mod options;
+#[path = "../utils/kports.rs"]
+mod kports;
+#[path = "../utils/options.rs"]
+mod options;
+#[path = "../utils/socket.rs"]
+mod socket;
 
-fn main() {    
+fn main() {
     SimpleLogger::new()
         .with_level(LevelFilter::Info)
         .env()
@@ -27,7 +30,7 @@ fn main() {
 
     // Create the state directory if it does not already exist
     match knocker.ensure_state_dir() {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             log::error!("Error ensuring state directory: {}", err);
             std::process::exit(1);
@@ -40,7 +43,7 @@ fn main() {
         log::debug!("attempting knock sequence");
 
         match knocker.update_state() {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(err) => {
                 log::error!("Error updating state: {}", err);
                 std::process::exit(1);
@@ -53,34 +56,38 @@ fn main() {
             knocker.knock_common.interval,
             knocker.knock_common.counter,
             knocker.knock_common.num_ports,
-            knocker.knock_common.port_range.clone());
+            knocker.knock_common.port_range.clone(),
+        );
         log::trace!("kport_values: {:?}", kport_values);
 
         // Attempt to knock the ports
         success = match socket::knock_ports(
             knocker.ip_address,
             knocker.knock_common.dest_port,
-            kport_values) {
-                Ok(s) => {s},
-                Err(err) => {
-                    log::error!("Error performing knock sequence: {}", err);
-                    std::process::exit(1);
-                }
-            };
+            kport_values,
+        ) {
+            Ok(s) => s,
+            Err(err) => {
+                log::error!("Error performing knock sequence: {}", err);
+                std::process::exit(1);
+            }
+        };
 
-        // Increment the counter
-        knocker.knock_common.counter += 1;
-    };
+        // Only advance the counter after a successful destination connection so
+        // the client stays in sync with the daemon's state for this interval.
+        if success {
+            knocker.knock_common.counter += 1;
+        }
+    }
 
     match knocker.update_state() {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             log::error!("Error updating state: {}", err);
             std::process::exit(1);
         }
     };
 }
-
 
 /************************************************************************************/
 /* Knocker                                                                          */
@@ -184,7 +191,7 @@ impl Knocker {
         let config = options::get_config(config_path)?;
         let knock_common = options::KnockCommon::build_common(
             state_dir,
-            options::KnockArgs{
+            options::KnockArgs {
                 secret_value: args.secret_value,
                 secret_path: args.secret_path,
                 time_interval: args.time_interval,
@@ -193,11 +200,12 @@ impl Knocker {
                 num_ports: args.num_ports,
                 dest_port: args.dest_port,
             },
-            config.clone())?;
+            config.clone(),
+        )?;
 
-        Ok(Knocker{
+        Ok(Knocker {
             knock_common: knock_common.clone(),
-            ip_address: args.ip_address
+            ip_address: args.ip_address,
         })
     }
 

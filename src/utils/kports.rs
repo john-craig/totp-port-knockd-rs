@@ -1,5 +1,5 @@
-use sha2::{Sha512};
-use hmac::{SimpleHmac, Mac};
+use hmac::{Mac, SimpleHmac};
+use sha2::Sha512;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SHA512_OCTETS: u32 = 64;
@@ -9,23 +9,24 @@ const MAX_PORT_NUM: u32 = 65535;
 type HmacSha512 = SimpleHmac<Sha512>;
 
 pub fn calculate_kports(
-        totp_secret: Vec<u8>, 
-        totp_interval: u64, 
-        totp_counter: u32, 
-        num_ports: u32, 
-        port_range: Vec<u32>) -> Vec<u32> {
+    totp_secret: Vec<u8>,
+    totp_interval: u64,
+    totp_counter: u32,
+    num_ports: u32,
+    port_range: Vec<u32>,
+) -> Vec<u32> {
     log::info!("Entering calculate_kports");
     // Validate inputs
     assert!(port_range.len() == 2);
     assert!(port_range[1] <= MAX_PORT_NUM);
     assert!(port_range[0] < port_range[1]);
-    
+
     // Calculate number of bits required to express each
     // port number
     let port_bitwidth = (port_range[1] - port_range[0]).ilog2() + 1;
 
     // Make sure we can actually produce this many ports
-    assert!(port_bitwidth * num_ports <= (SHA512_OCTETS*OCTET_BITS));
+    assert!(port_bitwidth * num_ports <= (SHA512_OCTETS * OCTET_BITS));
     log::debug!("port_bitwidth: {:?}", port_bitwidth);
 
     // Get the current Unix timestamp
@@ -33,7 +34,7 @@ pub fn calculate_kports(
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    
+
     // Get the timestamp as of the start of this interval
     let timestamp = cur_time_secs - (cur_time_secs % totp_interval);
     log::debug!("timestamp: {:?}", timestamp);
@@ -46,10 +47,7 @@ pub fn calculate_kports(
 
     // If necessary, iterate the HMAC operation
     for _ in 0..totp_counter {
-        hmac_buf = totp_hmac.clone()
-            .finalize()
-            .into_bytes()
-            .to_vec();
+        hmac_buf = totp_hmac.clone().finalize().into_bytes().to_vec();
 
         totp_hmac.update(&hmac_buf);
     }
@@ -83,7 +81,8 @@ pub fn calculate_kports(
         log::trace!("   r_bits: {:?}", r_bits);
 
         if l_bits != 0 {
-            p_num += u32::from((hmac_buf[c_byte] << (OCTET_BITS - l_bits)) >> (OCTET_BITS - l_bits));
+            p_num +=
+                u32::from((hmac_buf[c_byte] << (OCTET_BITS - l_bits)) >> (OCTET_BITS - l_bits));
             c_byte += 1;
         }
 

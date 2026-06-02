@@ -1,30 +1,33 @@
-use simple_logger::SimpleLogger;
-use clap::{Parser};
-use std::path::{Path, PathBuf};
-use which::which;
-use std::thread;
-use std::env;
-use std::str;
-use std::fs;
-use std::sync::mpsc;
-use std::time::Duration;
+use clap::Parser;
+use log::LevelFilter;
 use signal_hook::{consts::SIGINT, consts::SIGTERM, iterator::Signals};
-use log::{LevelFilter};
+use simple_logger::SimpleLogger;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::str;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+use which::which;
 
-#[path = "../utils/kports.rs"] mod kports;
-#[path = "../utils/iptables.rs"] mod iptables;
-#[path = "../utils/options.rs"] mod options;
+#[path = "../utils/iptables.rs"]
+mod iptables;
+#[path = "../utils/kports.rs"]
+mod kports;
+#[path = "../utils/options.rs"]
+mod options;
 
-fn main() {    
+fn main() {
     SimpleLogger::new()
         .with_level(LevelFilter::Info)
         .env()
         .init()
         .unwrap();
-    
+
     // Ensure `iptables` is available in the current PATH
     match which("iptables") {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             log::error!("Error locating iptables: {:?}", err);
             std::process::exit(1);
@@ -41,15 +44,15 @@ fn main() {
 
     // Create the state directory if it does not already exist
     match knock_daemon.ensure_state_dir() {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             log::error!("Error ensuring state directory: {:?}", err);
             std::process::exit(1);
         }
     };
-    
+
     match run_daemon(knock_daemon) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             log::error!("Error running daemon: {:?}", err);
         }
@@ -73,7 +76,7 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
             match send_shutdown.send(true) {
                 Ok(_) => {
                     log::info!("Sent shutdown signal to main thread");
-                },
+                }
                 Err(err) => {
                     log::error!("Failed to send shutdown signal to main thread: {:?}", err);
                     std::process::exit(1);
@@ -85,7 +88,7 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
             // Teardown all the rules
             match iptables::teardown_port_knocking(kd_signal_clone.knock_common.num_ports) {
                 Ok(_) => log::info!("Final port knocking teardown successful"),
-                Err(err) => log::error!("Error performing final port knocking teardown: {:?}", err)
+                Err(err) => log::error!("Error performing final port knocking teardown: {:?}", err),
             };
 
             // Delete the PID file
@@ -111,7 +114,8 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
                 knock_daemon.knock_common.interval,
                 knock_daemon.knock_common.counter,
                 knock_daemon.knock_common.num_ports,
-                knock_daemon.knock_common.port_range.clone());
+                knock_daemon.knock_common.port_range.clone(),
+            );
             log::trace!("kport_values: {:?}", kport_values);
 
             iptables::setup_port_knocking(knock_daemon.knock_common.dest_port, kport_values)?;
@@ -124,37 +128,42 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
         for _ in 0..interval_remaining {
             shutdown = match recv_shutdown.try_recv() {
                 Ok(msg) => msg,
-                Err(_) => false
+                Err(_) => false,
             };
             if shutdown {
                 break;
             };
 
             thread::sleep(Duration::from_secs(1));
-            let accepted_packets: u32 = iptables::get_accepted_packets(knock_daemon.knock_common.dest_port)?;
+            let accepted_packets: u32 =
+                iptables::get_accepted_packets(knock_daemon.knock_common.dest_port)?;
 
             if accepted_packets > 0 {
                 log::debug!("incrementing knock counter");
                 knock_daemon.knock_common.counter += 1;
                 break;
             };
-        };
+        }
 
         if !shutdown {
             shutdown = match recv_shutdown.try_recv() {
                 Ok(msg) => msg,
-                Err(_) => false
+                Err(_) => false,
             };
         };
 
         if shutdown {
             log::info!("Recieved shutdown signal from signal handling thread");
-            send_acknowledge.send(()).expect("Failed to send acknowledgement to signal handling thread");
+            send_acknowledge
+                .send(())
+                .expect("Failed to send acknowledgement to signal handling thread");
             break;
         };
-    };
+    }
 
-    signal_thread.join().expect("Failed to rejoin signal handling thread");
+    signal_thread
+        .join()
+        .expect("Failed to rejoin signal handling thread");
     Ok(())
 }
 
@@ -201,7 +210,6 @@ struct DaemonArgs {
     dest_port: Option<u32>,
 }
 
-
 #[derive(Clone, Debug)]
 pub struct KnockDaemon {
     pub knock_common: options::KnockCommon,
@@ -215,7 +223,7 @@ impl KnockDaemon {
         // Determine configuration file path based on env var
         let config_path_string: String = match env::var(DAEMON_CONFIG_VAR_NAME) {
             Ok(val) => val,
-            Err(_) => DAEMON_DEFAULT_CONFIG_PATH.to_string()
+            Err(_) => DAEMON_DEFAULT_CONFIG_PATH.to_string(),
         };
         log::debug!("config_path_string: {config_path_string}");
         let config_path: &Path = Path::new(&config_path_string);
@@ -224,7 +232,7 @@ impl KnockDaemon {
         // Determine state file path based on env var
         let state_dir_string: String = match env::var(DAEMON_STATE_VAR_NAME) {
             Ok(val) => val,
-            Err(_) => DAEMON_DEFAULT_STATE_DIR.to_string()
+            Err(_) => DAEMON_DEFAULT_STATE_DIR.to_string(),
         };
         log::debug!("state_dir_string: {state_dir_string}");
         let state_dir: &Path = Path::new(&state_dir_string);
@@ -233,7 +241,7 @@ impl KnockDaemon {
         let config = options::get_config(config_path)?;
         let knock_common = options::KnockCommon::build_common(
             state_dir,
-            options::KnockArgs{
+            options::KnockArgs {
                 secret_value: args.secret_value,
                 secret_path: args.secret_path,
                 time_interval: args.time_interval,
@@ -242,10 +250,11 @@ impl KnockDaemon {
                 num_ports: args.num_ports,
                 dest_port: args.dest_port,
             },
-            config.clone())?;
+            config.clone(),
+        )?;
 
-        Ok(KnockDaemon{
-            knock_common: knock_common.clone()
+        Ok(KnockDaemon {
+            knock_common: knock_common.clone(),
         })
     }
 

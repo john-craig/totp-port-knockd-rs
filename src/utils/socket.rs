@@ -1,7 +1,12 @@
-use psocket::{TcpSocket, IpAddr, Ipv4Addr, SocketAddr};
+use psocket::{IpAddr, Ipv4Addr, SocketAddr, TcpSocket};
+use std::thread;
 use std::time::Duration;
 
-pub fn knock_ports(ip_address: Ipv4Addr, dest_port: u32, kports: Vec<u32>) -> Result<bool, Box<dyn std::error::Error>> {
+pub fn knock_ports(
+    ip_address: Ipv4Addr,
+    dest_port: u32,
+    kports: Vec<u32>,
+) -> Result<bool, Box<dyn std::error::Error>> {
     log::info!("Entering knock_ports");
     let mut success = false;
 
@@ -9,11 +14,17 @@ pub fn knock_ports(ip_address: Ipv4Addr, dest_port: u32, kports: Vec<u32>) -> Re
         let p_num = kports[i];
 
         log::debug!("knocking port: {p_num}");
-        let _ = TcpSocket::connect_asyn(&SocketAddr::new(IpAddr::V4(ip_address), p_num.try_into()?)).unwrap().close();
-    };
+        let knock_addr = SocketAddr::new(IpAddr::V4(ip_address), p_num.try_into()?);
+        let _ = TcpSocket::connect_timeout(&knock_addr, Duration::from_millis(200))
+            .map(|sock| sock.close());
+        thread::sleep(Duration::from_millis(20));
+    }
 
     log::debug!("knocking port dest_port: {dest_port}");
-    match TcpSocket::connect_timeout(&SocketAddr::new(IpAddr::V4(ip_address), dest_port.try_into()?), Duration::from_secs(5)) {
+    match TcpSocket::connect_timeout(
+        &SocketAddr::new(IpAddr::V4(ip_address), dest_port.try_into()?),
+        Duration::from_secs(5),
+    ) {
         Ok(sock) => {
             sock.close();
             success = true;
