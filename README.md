@@ -1,6 +1,15 @@
 # totp-port-knockd-rs
 A package for securing system with TOTP port knocking, written in Rust.
 
+## Vendored dependencies
+This repository includes a checked-in `vendor/` tree and `.cargo/config.toml` so Cargo and downstream Nix packaging can build without fetching crates from `crates.io` during the build.
+
+If `Cargo.toml` or `Cargo.lock` changes, refresh the vendored tree with:
+
+```sh
+cargo vendor
+```
+
 ## Introduction
 TOTP port knocking is a network security specialty that aims to address the reliance of traditional port knocking schemes on security-by-obscurity by deriving the knocking sequence required for opening a protected port from a time-based one-time passcode. This time-based one-time passcode is derived from a secret value which must be pre-shared between the server and client(s). For more information about the security of TOTP port knocking and recommended settings, see "Security" below.
 
