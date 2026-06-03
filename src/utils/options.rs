@@ -390,9 +390,12 @@ impl KnockCommon {
         log::trace!("knock_state (after): {knock_state:?}");
         log::trace!("changed (after): {changed}");
 
+        // Keep the in-memory view synchronized with the persisted state even
+        // when the state file did not need to be rewritten this iteration.
+        self.counter = knock_state.counter;
+        self.timestamp = knock_state.timestamp;
+
         if changed {
-            self.counter = knock_state.counter;
-            self.timestamp = knock_state.timestamp;
             self.write_state(knock_state.clone())?;
         };
 
