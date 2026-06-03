@@ -45,6 +45,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
             -A totp-knockd-traffic -m state --state ESTABLISHED,RELATED -j ACCEPT
     */
     let mut rule: String;
+    let final_step = kports.len() - 1;
 
     rule = format!("-j {TRAFFIC_FILTER}");
     log::debug!("Appending rule '{rule}' to chain 'INPUT' in table 'filter'");
@@ -70,7 +71,7 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
         "-m state --state NEW -m tcp -p tcp --dport {dport} \
         -m recent --rcheck --seconds 30 --name {SEQUENCE}{} \
         -j ACCEPT",
-        kports.len() - 1
+        final_step
     );
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
     ipt.append("filter", TRAFFIC_FILTER, &rule)?;
@@ -89,10 +90,23 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
         to a different port or use UDP for some reason)
     */
     rule = format!(
+        "-m state --state NEW -m tcp -p tcp --dport {} \
+        -m recent --rcheck --name {SEQUENCE}{} \
+        -j DROP",
+        kports[final_step], final_step
+    );
+    log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
+    ipt.append("filter", TRAFFIC_FILTER, &rule)?;
+
+    /*
+        Preserve the last completed knock when the TCP stack retransmits to the
+        final knock port while the client is attempting to connect to `dport`.
+    */
+    rule = format!(
         "-m state --state NEW -m tcp -p tcp \
         -m recent --name {SEQUENCE}{} \
         --remove -j DROP",
-        kports.len() - 1
+        final_step
     );
     log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
     ipt.append("filter", TRAFFIC_FILTER, &rule)?;
@@ -135,6 +149,21 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
             //     kports[i], i - 1);
             // log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
             // ipt.append("filter", TRAFFIC_FILTER, &rule)?;
+
+            /*
+                Preserve the previously completed knock when the TCP stack
+                retransmits to the same port while we are waiting for the next
+                port in the sequence.
+            */
+            rule = format!(
+                "-m state --state NEW -m tcp -p tcp --dport {} \
+                -m recent --rcheck --name {SEQUENCE}{} \
+                -j DROP",
+                kports[i - 1],
+                i - 1
+            );
+            log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
+            ipt.append("filter", TRAFFIC_FILTER, &rule)?;
 
             /*
                 This rule has the same criteria but drops the packet if it was not sent
@@ -183,16 +212,6 @@ pub fn setup_port_knocking(dport: u32, kports: Vec<u32>) -> Result<(), Box<dyn s
             log::debug!("Appending rule '{rule}' to chain '{TRAFFIC_FILTER}' in table 'filter'");
             ipt.append("filter", TRAFFIC_FILTER, &rule)?;
         };
-    }
-
-    /* Set up drop rules between each input and its sequence chain. This should have the format:
-
-        -A totp-knockd-input0 -m recent --name totp-knockd-seq0 --set -j DROP
-    */
-    for i in 0..kports.len() - 1 {
-        rule = format!(" -m recent --name  {SEQUENCE}{i} --set -j DROP");
-        log::debug!("Appending rule '{rule}' to chain '{INPUT_FILTER}{i}' in table 'filter'");
-        ipt.append("filter", &format!("{INPUT_FILTER}{i}"), &rule)?;
     }
 
     // Finally, set a rule to drop all packets sent to the traffic filter that do not match other rules
