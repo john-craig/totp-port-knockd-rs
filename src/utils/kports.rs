@@ -8,9 +8,28 @@ const MAX_PORT_NUM: u32 = 65535;
 
 type HmacSha512 = SimpleHmac<Sha512>;
 
+#[allow(dead_code)]
 pub fn calculate_kports(
     totp_secret: Vec<u8>,
     totp_interval: u64,
+    totp_counter: u32,
+    num_ports: u32,
+    port_range: Vec<u32>,
+) -> Vec<u32> {
+    // Get the current Unix timestamp
+    let cur_time_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Get the timestamp as of the start of this interval
+    let timestamp = cur_time_secs - (cur_time_secs % totp_interval);
+    calculate_kports_for_timestamp(totp_secret, timestamp, totp_counter, num_ports, port_range)
+}
+
+pub fn calculate_kports_for_timestamp(
+    totp_secret: Vec<u8>,
+    timestamp: u64,
     totp_counter: u32,
     num_ports: u32,
     port_range: Vec<u32>,
@@ -28,15 +47,6 @@ pub fn calculate_kports(
     // Make sure we can actually produce this many ports
     assert!(port_bitwidth * num_ports <= (SHA512_OCTETS * OCTET_BITS));
     log::debug!("port_bitwidth: {:?}", port_bitwidth);
-
-    // Get the current Unix timestamp
-    let cur_time_secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    // Get the timestamp as of the start of this interval
-    let timestamp = cur_time_secs - (cur_time_secs % totp_interval);
     log::debug!("timestamp: {:?}", timestamp);
 
     // Set up HMAC

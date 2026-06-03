@@ -15,15 +15,17 @@ pub fn knock_ports(
 
         log::debug!("knocking port: {p_num}");
         let knock_addr = SocketAddr::new(IpAddr::V4(ip_address), p_num.try_into()?);
-        let _ = TcpSocket::connect_timeout(&knock_addr, Duration::from_millis(200))
-            .map(|sock| sock.close());
-        thread::sleep(Duration::from_millis(20));
+        let _ = TcpSocket::connect_asyn(&knock_addr).map(|sock| {
+            thread::sleep(Duration::from_millis(10));
+            sock.close()
+        });
+        thread::sleep(Duration::from_millis(120));
     }
 
     log::debug!("knocking port dest_port: {dest_port}");
     match TcpSocket::connect_timeout(
         &SocketAddr::new(IpAddr::V4(ip_address), dest_port.try_into()?),
-        Duration::from_secs(5),
+        Duration::from_secs(2),
     ) {
         Ok(sock) => {
             sock.close();

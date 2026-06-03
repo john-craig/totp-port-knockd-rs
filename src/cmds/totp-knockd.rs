@@ -112,9 +112,9 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
             iptables::teardown_port_knocking(knock_daemon.knock_common.num_ports)?;
 
             // Generate new ports
-            let kport_values: Vec<u32> = kports::calculate_kports(
+            let kport_values: Vec<u32> = kports::calculate_kports_for_timestamp(
                 knock_daemon.knock_common.secret_value.clone().into(),
-                knock_daemon.knock_common.interval,
+                knock_daemon.knock_common.timestamp,
                 knock_daemon.knock_common.counter,
                 knock_daemon.knock_common.num_ports,
                 knock_daemon.knock_common.port_range.clone(),

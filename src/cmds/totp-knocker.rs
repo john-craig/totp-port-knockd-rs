@@ -5,6 +5,8 @@ use simple_logger::SimpleLogger;
 use std::env;
 use std::path::Path;
 use std::str;
+use std::thread;
+use std::time::Duration;
 
 #[path = "../utils/kports.rs"]
 mod kports;
@@ -50,28 +52,55 @@ fn main() {
             }
         };
 
-        // Generate new ports
-        let kport_values: Vec<u32> = kports::calculate_kports(
-            knocker.knock_common.secret_value.clone().into(),
-            knocker.knock_common.interval,
-            knocker.knock_common.counter,
-            knocker.knock_common.num_ports,
-            knocker.knock_common.port_range.clone(),
-        );
-        log::trace!("kport_values: {:?}", kport_values);
-
-        // Attempt to knock the ports
-        success = match socket::knock_ports(
-            knocker.ip_address,
-            knocker.knock_common.dest_port,
-            kport_values,
-        ) {
-            Ok(s) => s,
+        // Avoid starting a sequence too close to an interval rollover. A small
+        // clock skew between client and daemon is enough to desynchronize the
+        // sequence if we start in the final seconds of an interval.
+        let interval_remaining = match knocker.interval_remaining() {
+            Ok(v) => v,
             Err(err) => {
-                log::error!("Error performing knock sequence: {}", err);
+                log::error!("Error calculating interval headroom: {}", err);
                 std::process::exit(1);
             }
         };
+        let min_headroom = knocker.estimated_headroom_secs();
+        if interval_remaining <= min_headroom {
+            log::info!(
+                "Only {}s remain in this interval; waiting for the next interval before knocking",
+                interval_remaining
+            );
+            thread::sleep(Duration::from_secs(interval_remaining));
+            continue;
+        }
+
+        // Try a small adjacent-interval window to tolerate clock skew between
+        // the client and the daemon.
+        let candidate_timestamps = knocker.candidate_timestamps();
+        for timestamp in candidate_timestamps {
+            let kport_values: Vec<u32> = kports::calculate_kports_for_timestamp(
+                knocker.knock_common.secret_value.clone().into(),
+                timestamp,
+                knocker.knock_common.counter,
+                knocker.knock_common.num_ports,
+                knocker.knock_common.port_range.clone(),
+            );
+            log::trace!("timestamp: {timestamp}, kport_values: {:?}", kport_values);
+
+            success = match socket::knock_ports(
+                knocker.ip_address,
+                knocker.knock_common.dest_port,
+                kport_values,
+            ) {
+                Ok(s) => s,
+                Err(err) => {
+                    log::error!("Error performing knock sequence: {}", err);
+                    std::process::exit(1);
+                }
+            };
+
+            if success {
+                break;
+            }
+        }
 
         // Only advance the counter after a successful destination connection so
         // the client stays in sync with the daemon's state for this interval.
@@ -211,6 +240,24 @@ impl Knocker {
 
     pub fn interval_remaining(&self) -> Result<u64, Box<dyn std::error::Error>> {
         self.knock_common.interval_remaining()
+    }
+
+    pub fn estimated_headroom_secs(&self) -> u64 {
+        // Knocking 32 ports with a short timeout/spacing takes ~8s in the
+        // current client implementation. Leave a little extra room so the
+        // daemon and client do not straddle an interval boundary.
+        10
+    }
+
+    pub fn candidate_timestamps(&self) -> Vec<u64> {
+        let mut timestamps = vec![self.knock_common.timestamp];
+
+        if self.knock_common.timestamp >= self.knock_common.interval {
+            timestamps.push(self.knock_common.timestamp - self.knock_common.interval);
+        }
+
+        timestamps.push(self.knock_common.timestamp + self.knock_common.interval);
+        timestamps
     }
 
     pub fn ensure_state_dir(&self) -> Result<(), Box<dyn std::error::Error>> {
