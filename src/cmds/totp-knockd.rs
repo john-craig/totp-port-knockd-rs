@@ -93,6 +93,9 @@ fn run_daemon(mut knock_daemon: KnockDaemon) -> Result<(), Box<dyn std::error::E
 
             // Delete the PID file
             let _ = kd_signal_clone.clean_pid();
+
+            // Exit the signal loop so the main thread can join cleanly.
+            break;
         }
     });
 
