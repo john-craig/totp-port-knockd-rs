@@ -378,7 +378,7 @@ impl KnockCommon {
         };
 
         // Check if timestamp expired
-        if cur_time_secs > knock_state.timestamp + self.interval {
+        if cur_time_secs >= knock_state.timestamp + self.interval {
             log::debug!("timestamp expired");
             changed = true;
 
