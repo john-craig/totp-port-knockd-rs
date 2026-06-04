@@ -40,9 +40,10 @@ pub fn calculate_kports_for_timestamp(
     assert!(port_range[1] <= MAX_PORT_NUM);
     assert!(port_range[0] < port_range[1]);
 
-    // Calculate number of bits required to express each
-    // port number
-    let port_bitwidth = (port_range[1] - port_range[0]).ilog2() + 1;
+    // Calculate number of bits required to express a port offset within the
+    // configured inclusive range.
+    let port_span = (port_range[1] - port_range[0]) + 1;
+    let port_bitwidth = (port_span - 1).ilog2() + 1;
 
     // Make sure we can actually produce this many ports
     assert!(port_bitwidth * num_ports <= (SHA512_OCTETS * OCTET_BITS));
@@ -107,7 +108,7 @@ pub fn calculate_kports_for_timestamp(
             p_num += u32::from(hmac_buf[c_byte] >> (OCTET_BITS - r_bits));
         }
 
-        p_num = p_num + port_range[0];
+        p_num = (p_num % port_span) + port_range[0];
         log::trace!("   p_num: '{:X}'X, {:?}", p_num, p_num);
 
         kports.push(p_num);
